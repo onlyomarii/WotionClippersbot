@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { config } from './config.js';
 import { consumeTikTokOAuthState, saveTikTokConnection } from './storage.js';
@@ -40,7 +40,7 @@ export function startWebServer() {
   const server = createServer(async (request, response) => {
     const url = new URL(request.url, `http://${request.headers.host}`);
 
-    if (/^\/tiktok[\w-]+\.txt$/.test(url.pathname)) {
+    if (/^\/tiktok[^/]+\.txt$/.test(url.pathname)) {
       try {
         const filePath = path.join(process.cwd(), 'public', path.basename(url.pathname));
         const content = await readFile(filePath, 'utf8');
@@ -98,6 +98,9 @@ export function startWebServer() {
   server.listen(config.port, () => {
     console.log(`Web callback server listening on port ${config.port}`);
     console.log(`TikTok redirect URI: ${getTikTokRedirectUri()}`);
+    readdir(path.join(process.cwd(), 'public'))
+      .then((files) => console.log(`Public files: ${files.join(', ') || '(none)'}`))
+      .catch(() => console.log('Public files: public folder not found'));
   });
 
   return server;
