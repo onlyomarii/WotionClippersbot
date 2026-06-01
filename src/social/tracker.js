@@ -1,0 +1,45 @@
+import { detectPlatformFromUrl } from '../platforms.js';
+import { listAllPosts, updatePostStats } from '../storage.js';
+import { getTikTokViews } from './tiktok.js';
+import { getYouTubeViews } from './youtube.js';
+
+export async function refreshStats() {
+  const posts = await listAllPosts();
+  const updates = [];
+
+  for (const post of posts) {
+    const platform = detectPlatformFromUrl(post.link);
+
+    if (platform === 'youtube') {
+      const result = await getYouTubeViews(post.link);
+      updates.push({
+        id: post.id,
+        platform,
+        views: result.views,
+        status: result.status
+      });
+      continue;
+    }
+
+    if (platform === 'tiktok') {
+      const result = await getTikTokViews(post.link, post.userId);
+      updates.push({
+        id: post.id,
+        platform,
+        views: result.views,
+        status: result.status
+      });
+      continue;
+    }
+
+    updates.push({
+      id: post.id,
+      platform,
+      views: post.views ?? 0,
+      status: platform === 'unknown' ? 'invalid_link' : 'manual_api_needed'
+    });
+  }
+
+  await updatePostStats(updates);
+  return updates;
+}
