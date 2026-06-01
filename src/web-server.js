@@ -1,4 +1,6 @@
 import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import { config } from './config.js';
 import { consumeTikTokOAuthState, saveTikTokConnection } from './storage.js';
 import { exchangeTikTokCode, fetchTikTokUserInfo, getTikTokRedirectUri } from './social/tiktok-login.js';
@@ -37,6 +39,18 @@ function sendHtml(response, statusCode, title, message) {
 export function startWebServer() {
   const server = createServer(async (request, response) => {
     const url = new URL(request.url, `http://${request.headers.host}`);
+
+    if (/^\/tiktok[\w-]+\.txt$/.test(url.pathname)) {
+      try {
+        const filePath = path.join(process.cwd(), 'public', path.basename(url.pathname));
+        const content = await readFile(filePath, 'utf8');
+        response.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+        response.end(content);
+      } catch {
+        sendHtml(response, 404, 'Verification File Not Found', 'The TikTok verification file was not found.');
+      }
+      return;
+    }
 
     if (url.pathname === '/') {
       sendHtml(response, 200, 'OnlyOmariBot', 'OnlyOmariBot is running. You can return to Discord.');
