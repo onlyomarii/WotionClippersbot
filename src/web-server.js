@@ -121,7 +121,7 @@ export function startWebServer() {
       sendHtml(response, 200, 'TikTok Connected', 'Your TikTok account is connected to WendyClippersbot. You can return to Discord and use /tiktok-status.');
     } catch (callbackError) {
       console.error('TikTok callback failed:', callbackError);
-      sendHtml(response, 500, 'TikTok Connection Failed', 'OnlyOmariBot could not finish the TikTok connection. Please check the bot logs and try again.');
+      sendHtml(response, 500, 'TikTok Connection Failed', 'WendyClippersbot could not finish the TikTok connection. Please check the bot logs and try again.');
     }
   });
 
