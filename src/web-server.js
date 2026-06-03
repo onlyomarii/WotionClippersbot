@@ -83,7 +83,7 @@ export function startWebServer() {
     }
 
     if (url.pathname === '/') {
-      sendHtml(response, 200, 'OnlyOmariBot', 'OnlyOmariBot is running. You can return to Discord.');
+      sendHtml(response, 200, 'WendyClippersbot', 'WendyClippersbot is running. You can return to Discord.');
       return;
     }
 
@@ -118,7 +118,7 @@ export function startWebServer() {
       const profile = await fetchTikTokUserInfo(tokenData.access_token);
       await saveTikTokConnection(stateRecord.userId, tokenData, profile);
 
-      sendHtml(response, 200, 'TikTok Connected', 'Your TikTok account is connected to OnlyOmariBot. You can return to Discord and use /tiktok-status.');
+      sendHtml(response, 200, 'TikTok Connected', 'Your TikTok account is connected to WendyClippersbot. You can return to Discord and use /tiktok-status.');
     } catch (callbackError) {
       console.error('TikTok callback failed:', callbackError);
       sendHtml(response, 500, 'TikTok Connection Failed', 'OnlyOmariBot could not finish the TikTok connection. Please check the bot logs and try again.');
