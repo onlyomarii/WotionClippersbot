@@ -1,4 +1,4 @@
-# OnlyOmariBot
+# WendyClippersbot
 
 Starter Discord bot for linking social accounts, saving payout details, uploading social clips for tracking, viewing stats, and building a leaderboard.
 
