@@ -7,7 +7,7 @@ import { platformChoices, paymentPlatformChoices } from './platforms.js';
 export const commands = [
   new SlashCommandBuilder()
     .setName('help')
-    .setDescription('View the WendyClippersbot command guide.'),
+    .setDescription('View the WotionClippersbot command guide.'),
 
   new SlashCommandBuilder()
     .setName('account-info')

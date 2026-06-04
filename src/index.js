@@ -67,7 +67,7 @@ function accountSummaryEmbed(user, posts) {
 
 function helpEmbed() {
   return new EmbedBuilder()
-    .setTitle('WendyClippersbot Command Guide')
+    .setTitle('WotionClippersbot Command Guide')
     .setColor(0x2f80ed)
     .addFields(
       {
