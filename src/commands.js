@@ -98,7 +98,7 @@ export const commands = [
     .setDescription('Upload social media post links for tracking.')
     .addStringOption((option) =>
       option.setName('links')
-        .setDescription('One link, or up to 10 links separated by commas')
+        .setDescription('One link, or up to 20 links separated by commas')
         .setRequired(true)),
 
   new SlashCommandBuilder()
@@ -106,7 +106,7 @@ export const commands = [
     .setDescription('Upload bounty post links for tracking.')
     .addStringOption((option) =>
       option.setName('links')
-        .setDescription('One link, or up to 10 links separated by commas')
+        .setDescription('One link, or up to 20 links separated by commas')
         .setRequired(true))
     .addStringOption((option) =>
       option.setName('tag')
@@ -118,7 +118,15 @@ export const commands = [
     .setDescription('Remove social media post links from tracking.')
     .addStringOption((option) =>
       option.setName('links')
-        .setDescription('One link, or up to 10 links separated by commas')
+        .setDescription('One link, or up to 20 links separated by commas')
+        .setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('remove-all-videos')
+    .setDescription('Remove all of your tracked videos.')
+    .addBooleanOption((option) =>
+      option.setName('confirm')
+        .setDescription('Confirm removing all your videos')
         .setRequired(true)),
 
   new SlashCommandBuilder()
@@ -131,6 +139,64 @@ export const commands = [
     .addUserOption((option) =>
       option.setName('user')
         .setDescription('Discord user to inspect')
+        .setRequired(true))
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+
+  new SlashCommandBuilder()
+    .setName('admin-account-info')
+    .setDescription('Admin: view a user account summary.')
+    .addUserOption((option) =>
+      option.setName('user')
+        .setDescription('Discord user to inspect')
+        .setRequired(true))
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+
+  new SlashCommandBuilder()
+    .setName('admin-payment-details')
+    .setDescription('Admin: view a user payment details.')
+    .addUserOption((option) =>
+      option.setName('user')
+        .setDescription('Discord user to inspect')
+        .setRequired(true))
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+
+  new SlashCommandBuilder()
+    .setName('admin-remove-video')
+    .setDescription('Admin: remove a video link from a user.')
+    .addUserOption((option) =>
+      option.setName('user')
+        .setDescription('Discord user')
+        .setRequired(true))
+    .addStringOption((option) =>
+      option.setName('links')
+        .setDescription('One link, or multiple links separated by commas')
+        .setRequired(true))
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+
+  new SlashCommandBuilder()
+    .setName('admin-reset-user-account')
+    .setDescription('Admin: remove a user TikTok account and all tracked videos.')
+    .addUserOption((option) =>
+      option.setName('user')
+        .setDescription('Discord user')
+        .setRequired(true))
+    .addBooleanOption((option) =>
+      option.setName('confirm')
+        .setDescription('Confirm resetting this user')
+        .setRequired(true))
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+
+  new SlashCommandBuilder()
+    .setName('admin-inactivity')
+    .setDescription('Admin: check which users have not uploaded videos.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+
+  new SlashCommandBuilder()
+    .setName('admin-refresh-user-stats')
+    .setDescription('Admin: refresh stats for one user only.')
+    .addUserOption((option) =>
+      option.setName('user')
+        .setDescription('Discord user to refresh')
         .setRequired(true))
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
@@ -164,6 +230,16 @@ export const commands = [
   new SlashCommandBuilder()
     .setName('refresh-stats')
     .setDescription('Admin: refresh tracked view counts now.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+
+  new SlashCommandBuilder()
+    .setName('admin-pause-uploads')
+    .setDescription('Admin: pause clip uploads.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+
+  new SlashCommandBuilder()
+    .setName('admin-unpause-uploads')
+    .setDescription('Admin: unpause clip uploads.')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
   new SlashCommandBuilder()

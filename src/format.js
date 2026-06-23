@@ -4,7 +4,7 @@ export function parseLinks(rawLinks) {
     .map((link) => link.trim())
     .filter(Boolean);
 
-  return links.slice(0, 10);
+  return links.slice(0, 20);
 }
 
 export function maskValue(value) {
@@ -20,4 +20,25 @@ export function maskValue(value) {
 
 export function formatNumber(value) {
   return new Intl.NumberFormat('en-US').format(Number(value ?? 0));
+}
+
+export function compactNumber(value) {
+  return new Intl.NumberFormat('en-US', {
+    notation: 'compact',
+    maximumFractionDigits: 1
+  }).format(Number(value ?? 0));
+}
+
+export function calculatePayout(views) {
+  const viewCount = Number(views ?? 0);
+
+  if (viewCount >= 5_000_000) return 500;
+  if (viewCount >= 1_000_000) return 100;
+  if (viewCount >= 500_000) return 50;
+  if (viewCount >= 100_000) return 10;
+  return 0;
+}
+
+export function formatPayout(views) {
+  return `$${calculatePayout(views)}`;
 }

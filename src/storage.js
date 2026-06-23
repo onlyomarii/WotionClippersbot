@@ -10,7 +10,8 @@ function emptyStore() {
     cycles: {},
     activeCycleId: null,
     tiktokOAuthStates: {},
-    snapshots: []
+    snapshots: [],
+    settings: {}
   };
 }
 
@@ -21,7 +22,23 @@ function normalizeStore(store) {
   store.activeCycleId ??= null;
   store.tiktokOAuthStates ??= {};
   store.snapshots ??= [];
+  store.settings ??= {};
   return store;
+}
+
+function parseTikTokVideoIdFromLink(link) {
+  try {
+    const url = new URL(link);
+    const pathMatch = url.pathname.match(/\/video\/(\d+)/);
+    if (pathMatch) return pathMatch[1];
+
+    const queryVideoId = url.searchParams.get('item_id') || url.searchParams.get('video_id');
+    if (queryVideoId && /^\d+$/.test(queryVideoId)) return queryVideoId;
+  } catch {
+    return null;
+  }
+
+  return null;
 }
 
 async function loadStore() {
@@ -289,6 +306,7 @@ export async function endCycle(endedBy) {
   activeCycle.endedAt = new Date().toISOString();
   activeCycle.endedBy = endedBy.id;
   store.activeCycleId = null;
+  store.posts = {};
 
   await saveStore(store);
   return { ok: true, cycle: activeCycle };
@@ -306,6 +324,7 @@ export async function addPosts(discordUser, links, campaignType = 'normal', tag 
       id,
       userId: user.id,
       link,
+      videoId: parseTikTokVideoIdFromLink(link),
       platform: null,
       campaignType,
       tag,
@@ -339,6 +358,80 @@ export async function removePosts(discordUser, links) {
   return removed;
 }
 
+export async function removeAllPosts(discordUser) {
+  const store = await loadStore();
+  const user = getUser(store, discordUser);
+  let removed = 0;
+
+  for (const [postId, post] of Object.entries(store.posts)) {
+    if (post.userId === user.id) {
+      delete store.posts[postId];
+      removed += 1;
+    }
+  }
+
+  await saveStore(store);
+  return removed;
+}
+
+export async function removePostsForUserId(userId, links, videoIds = []) {
+  const store = await loadStore();
+  const normalized = new Set(links.map((link) => link.trim()));
+  const normalizedIds = new Set(videoIds.filter(Boolean));
+  let removed = 0;
+
+  for (const [postId, post] of Object.entries(store.posts)) {
+    const postVideoId = post.videoId || parseTikTokVideoIdFromLink(post.link);
+
+    if (
+      post.userId === userId &&
+      (normalized.has(post.link) || (postVideoId && normalizedIds.has(postVideoId)))
+    ) {
+      delete store.posts[postId];
+      removed += 1;
+    }
+  }
+
+  await saveStore(store);
+  return removed;
+}
+
+export async function removeAllPostsForUserId(userId) {
+  const store = await loadStore();
+  let removed = 0;
+
+  for (const [postId, post] of Object.entries(store.posts)) {
+    if (post.userId === userId) {
+      delete store.posts[postId];
+      removed += 1;
+    }
+  }
+
+  await saveStore(store);
+  return removed;
+}
+
+export async function resetUserAccount(userId) {
+  const store = await loadStore();
+  const user = store.users[userId];
+  let removedPosts = 0;
+
+  for (const [postId, post] of Object.entries(store.posts)) {
+    if (post.userId === userId) {
+      delete store.posts[postId];
+      removedPosts += 1;
+    }
+  }
+
+  if (user) {
+    delete user.tiktok;
+    if (user.accounts?.tiktok) delete user.accounts.tiktok;
+  }
+
+  await saveStore(store);
+  return { user, removedPosts };
+}
+
 export async function listUserPosts(discordUser) {
   const store = await loadStore();
   const user = getUser(store, discordUser);
@@ -366,12 +459,14 @@ export async function adminStatsSummary() {
       username: store.users[post.userId]?.username ?? post.userId,
       posts: 0,
       views: 0,
+      payout: 0,
       tracked: 0,
       pending: 0
     };
 
     current.posts += 1;
     current.views += Number(post.views ?? 0);
+    current.payout += post.views >= 5000000 ? 500 : post.views >= 1000000 ? 100 : post.views >= 500000 ? 50 : post.views >= 100000 ? 10 : 0;
     if (post.status === 'tracked') current.tracked += 1;
     if (post.status !== 'tracked') current.pending += 1;
     rows.set(post.userId, current);
@@ -392,11 +487,13 @@ export async function leaderboard() {
       userId: post.userId,
       username: store.users[post.userId]?.username ?? post.userId,
       posts: 0,
-      views: 0
+      views: 0,
+      payout: 0
     };
 
     current.posts += 1;
     current.views += Number(post.views ?? 0);
+    current.payout += post.views >= 5000000 ? 500 : post.views >= 1000000 ? 100 : post.views >= 500000 ? 50 : post.views >= 100000 ? 10 : 0;
     rows.set(post.userId, current);
   }
 
@@ -432,4 +529,34 @@ export async function updatePostStats(updates) {
 export async function listAllPosts() {
   const store = await loadStore();
   return Object.values(store.posts);
+}
+
+export async function listAllUsersWithPosts() {
+  const store = await loadStore();
+  return Object.values(store.users).map((user) => {
+    const posts = Object.values(store.posts).filter((post) => post.userId === user.id);
+    const latestPost = posts
+      .slice()
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0] ?? null;
+
+    return {
+      user,
+      posts,
+      postCount: posts.length,
+      latestUploadAt: latestPost?.createdAt ?? null
+    };
+  });
+}
+
+export async function setUploadsPaused(paused) {
+  const store = await loadStore();
+  store.settings.uploadsPaused = Boolean(paused);
+  store.settings.uploadsPausedUpdatedAt = new Date().toISOString();
+  await saveStore(store);
+  return store.settings.uploadsPaused;
+}
+
+export async function areUploadsPaused() {
+  const store = await loadStore();
+  return Boolean(store.settings.uploadsPaused);
 }

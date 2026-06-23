@@ -39,7 +39,7 @@ export function parseTikTokVideoId(link) {
   return null;
 }
 
-async function resolveTikTokVideoId(link) {
+export async function resolveTikTokVideoId(link) {
   const directId = parseTikTokVideoId(link);
   if (directId) return directId;
 

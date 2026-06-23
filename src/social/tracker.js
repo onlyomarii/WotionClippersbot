@@ -3,8 +3,9 @@ import { listAllPosts, updatePostStats } from '../storage.js';
 import { getTikTokViews } from './tiktok.js';
 import { getYouTubeViews } from './youtube.js';
 
-export async function refreshStats() {
-  const posts = await listAllPosts();
+export async function refreshStats(userId = null) {
+  const allPosts = await listAllPosts();
+  const posts = userId ? allPosts.filter((post) => post.userId === userId) : allPosts;
   const updates = [];
 
   for (const post of posts) {

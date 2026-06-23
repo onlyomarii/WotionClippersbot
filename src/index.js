@@ -1,4 +1,7 @@
 import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   Client,
   EmbedBuilder,
   Events,
@@ -6,28 +9,36 @@ import {
   MessageFlags
 } from 'discord.js';
 import { config, requireConfig } from './config.js';
-import { formatNumber, maskValue, parseLinks } from './format.js';
+import { calculatePayout, compactNumber, formatNumber, formatPayout, maskValue, parseLinks } from './format.js';
 import {
   addAccount,
   addPosts,
   adminStatsSummary,
+  areUploadsPaused,
   createTikTokOAuthState,
   endCycle,
   getTikTokConnectionForUserId,
   getCycleStatus,
   leaderboard,
+  listAllUsersWithPosts,
   listPostsForUserId,
   listUserPosts,
   readUser,
+  readUserById,
   removeAccount,
+  removeAllPosts,
+  removePostsForUserId,
   removePayment,
   removePosts,
   removeTikTokConnection,
+  resetUserAccount,
+  setUploadsPaused,
   setPayment,
   startCycle,
   verifyAccount
 } from './storage.js';
 import { refreshStats } from './social/tracker.js';
+import { resolveTikTokVideoId } from './social/tiktok.js';
 import { createPkcePair, createTikTokAuthUrl, getTikTokRedirectUri, hasTikTokLoginConfig } from './social/tiktok-login.js';
 import { startWebServer } from './web-server.js';
 
@@ -38,8 +49,8 @@ const client = new Client({
 });
 
 function accountSummaryEmbed(user, posts) {
-  const accounts = Object.values(user.accounts);
-  const payments = Object.values(user.payments);
+  const accounts = Object.values(user.accounts ?? {});
+  const payments = Object.values(user.payments ?? {});
   const totalViews = posts.reduce((sum, post) => sum + Number(post.views ?? 0), 0);
 
   return new EmbedBuilder()
@@ -105,9 +116,10 @@ function helpEmbed() {
       {
         name: 'Uploading Posts',
         value: [
-          '`/upload links` - Add up to 10 social media links for tracking.',
-          '`/bounty-upload links tag` - Add up to 10 bounty links with a tag.',
-          '`/remove-video links` - Remove up to 10 tracked links.'
+          '`/upload links` - Add up to 20 social media links for tracking.',
+          '`/bounty-upload links tag` - Add up to 20 bounty links with a tag.',
+          '`/remove-video links` - Remove up to 20 tracked links.',
+          '`/remove-all-videos confirm:true` - Remove all of your tracked videos.'
         ].join('\n')
       },
       {
@@ -117,7 +129,20 @@ function helpEmbed() {
           '`/leaderboard` - View rankings for the current cycle.',
           "`/admin-stats user` - Admin only: view one user's tracked posts.",
           '`/admin-all-stats` - Admin only: view all-user totals.',
-          '`/refresh-stats` - Admin only: refresh view counts now.'
+          '`/admin-account-info user` - Admin only: view a user account summary.',
+          '`/admin-payment-details user` - Admin only: view user payout details.',
+          '`/admin-remove-video user links` - Admin only: remove links from a user.',
+          '`/admin-reset-user-account user confirm:true` - Admin only: remove TikTok and videos.',
+          '`/admin-inactivity` - Admin only: check upload activity.',
+          '`/refresh-stats` - Admin only: refresh all view counts now.',
+          '`/admin-refresh-user-stats user` - Admin only: refresh one user.'
+        ].join('\n')
+      },
+      {
+        name: 'Admin Upload Control',
+        value: [
+          '`/admin-pause-uploads` - Pause clip submissions.',
+          '`/admin-unpause-uploads` - Allow clip submissions again.'
         ].join('\n')
       },
       {
@@ -129,10 +154,138 @@ function helpEmbed() {
         ].join('\n')
       }
     )
-    .setFooter({ text: 'Separate multiple links with commas. Maximum 10 links per upload command.' });
+    .setFooter({ text: 'Separate multiple links with commas. Maximum 20 links per upload command.' });
+}
+
+const pageSize = 10;
+
+function pageCount(total) {
+  return Math.max(1, Math.ceil(total / pageSize));
+}
+
+function pageRows(rows, page) {
+  return rows.slice(page * pageSize, page * pageSize + pageSize);
+}
+
+function paginationRows(kind, page, totalPages) {
+  if (totalPages <= 1) return [];
+
+  return [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`page:${kind}:${page - 1}`)
+        .setLabel('Previous')
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(page <= 0),
+      new ButtonBuilder()
+        .setCustomId(`page:${kind}:${page + 1}`)
+        .setLabel('Next')
+        .setStyle(ButtonStyle.Primary)
+        .setDisabled(page >= totalPages - 1)
+    )
+  ];
+}
+
+function leaderboardEmbed(result, page = 0) {
+  const totalPages = pageCount(result.rows.length);
+  const rows = pageRows(result.rows, page);
+  const totalViews = result.rows.reduce((sum, row) => sum + Number(row.views ?? 0), 0);
+  const totalPosts = result.rows.reduce((sum, row) => sum + Number(row.posts ?? 0), 0);
+
+  const description = rows.map((row, index) => {
+    const rank = page * pageSize + index + 1;
+    return `#${rank} ${row.username}: ${compactNumber(row.views)} views | $${row.payout ?? 0} | ${row.posts} post(s)`;
+  }).join('\n');
+
+  return new EmbedBuilder()
+    .setTitle(result.cycle ? `Leaderboard - ${result.cycle.name}` : 'Leaderboard')
+    .setColor(0x27ae60)
+    .setDescription(description)
+    .addFields(
+      { name: 'Grand Total Views', value: compactNumber(totalViews), inline: true },
+      { name: 'Total Posts', value: String(totalPosts), inline: true },
+      { name: 'Total Users', value: String(result.rows.length), inline: true }
+    )
+    .setFooter({ text: `Page ${page + 1}/${totalPages} | ${result.rows.length} total users` });
+}
+
+async function adminAllStatsEmbed(page = 0) {
+  const rows = await adminStatsSummary();
+  const totalPages = pageCount(rows.length);
+  const description = pageRows(rows, page).map((row, index) => {
+    const rank = page * pageSize + index + 1;
+    return `#${rank} ${row.username}: ${compactNumber(row.views)} views | $${row.payout ?? 0} | ${row.posts} post(s) | ${row.tracked} tracked | ${row.pending} pending/manual`;
+  }).join('\n');
+
+  return {
+    rows,
+    embed: new EmbedBuilder()
+      .setTitle('Admin Stats Summary')
+      .setColor(0xf2994a)
+      .setDescription(description || 'No users have tracked posts yet.')
+      .setFooter({ text: `Page ${page + 1}/${totalPages} | ${rows.length} total users` })
+  };
+}
+
+async function inactivityEmbed(page = 0) {
+  const rows = (await listAllUsersWithPosts()).sort((a, b) => a.postCount - b.postCount || String(a.user.username).localeCompare(String(b.user.username)));
+  const totalPages = pageCount(rows.length);
+  const description = pageRows(rows, page).map((row, index) => {
+    const rank = page * pageSize + index + 1;
+    const latest = row.latestUploadAt ? new Date(row.latestUploadAt).toLocaleString() : 'never';
+    return `#${rank} ${row.user.username}: ${row.postCount} post(s) | last upload: ${latest}`;
+  }).join('\n');
+
+  return {
+    rows,
+    embed: new EmbedBuilder()
+      .setTitle('Admin Inactivity')
+      .setColor(0xeb5757)
+      .setDescription(description || 'No users found yet.')
+      .setFooter({ text: `Page ${page + 1}/${totalPages} | ${rows.length} total users` })
+  };
 }
 
 async function handleInteraction(interaction) {
+  if (interaction.isButton()) {
+    const [prefix, kind, pageValue] = interaction.customId.split(':');
+    if (prefix !== 'page') return;
+
+    const page = Math.max(0, Number(pageValue) || 0);
+
+    if (kind === 'leaderboard') {
+      const result = await leaderboard();
+      const totalPages = pageCount(result.rows.length);
+      await interaction.update({
+        embeds: [leaderboardEmbed(result, Math.min(page, totalPages - 1))],
+        components: paginationRows('leaderboard', Math.min(page, totalPages - 1), totalPages)
+      });
+      return;
+    }
+
+    if (kind === 'adminall') {
+      const result = await adminAllStatsEmbed(page);
+      const totalPages = pageCount(result.rows.length);
+      await interaction.update({
+        embeds: [result.embed],
+        components: paginationRows('adminall', Math.min(page, totalPages - 1), totalPages)
+      });
+      return;
+    }
+
+    if (kind === 'inactivity') {
+      const result = await inactivityEmbed(page);
+      const totalPages = pageCount(result.rows.length);
+      await interaction.update({
+        embeds: [result.embed],
+        components: paginationRows('inactivity', Math.min(page, totalPages - 1), totalPages)
+      });
+      return;
+    }
+
+    return;
+  }
+
   if (!interaction.isChatInputCommand()) return;
 
   const { commandName } = interaction;
@@ -254,6 +407,18 @@ async function handleInteraction(interaction) {
   }
 
   if (commandName === 'upload' || commandName === 'bounty-upload') {
+    if (await areUploadsPaused()) {
+      await interaction.editReply({
+        embeds: [
+          new EmbedBuilder()
+            .setTitle('Uploads Paused')
+            .setColor(0xeb5757)
+            .setDescription('Uploading clips is currently paused until this cycle ends. Please wait for an admin to unpause uploads before submitting more clips.')
+        ]
+      });
+      return;
+    }
+
     const links = parseLinks(interaction.options.getString('links', true));
     const tag = commandName === 'bounty-upload' ? interaction.options.getString('tag', true) : null;
 
@@ -276,6 +441,19 @@ async function handleInteraction(interaction) {
     return;
   }
 
+  if (commandName === 'remove-all-videos') {
+    const confirm = interaction.options.getBoolean('confirm', true);
+
+    if (!confirm) {
+      await interaction.editReply('Nothing removed. Run it again with `confirm:true` if you want to remove all your videos.');
+      return;
+    }
+
+    const removed = await removeAllPosts(interaction.user);
+    await interaction.editReply(`Removed ${removed} tracked video(s).`);
+    return;
+  }
+
   if (commandName === 'stats') {
     const posts = await listUserPosts(interaction.user);
 
@@ -285,7 +463,7 @@ async function handleInteraction(interaction) {
     }
 
     const lines = posts.slice(0, 10).map((post) =>
-      `${formatNumber(post.views)} views | ${post.status} | ${post.link}`
+      `${formatNumber(post.views)} views | ${formatPayout(post.views)} | ${post.status} | ${post.link}`
     );
 
     await interaction.editReply(lines.join('\n').slice(0, 1900));
@@ -302,10 +480,11 @@ async function handleInteraction(interaction) {
     }
 
     const totalViews = result.posts.reduce((sum, post) => sum + Number(post.views ?? 0), 0);
+    const totalPayout = result.posts.reduce((sum, post) => sum + calculatePayout(post.views), 0);
     const lines = result.posts.slice(0, 10).map((post, index) => {
       const cycleName = post.cycleId ? result.cycles[post.cycleId]?.name ?? 'Unknown cycle' : 'No cycle';
       const tag = post.tag ? ` | tag: ${post.tag}` : '';
-      return `${index + 1}. ${formatNumber(post.views)} views | ${post.status} | ${cycleName}${tag}\n${post.link}`;
+      return `${index + 1}. ${formatNumber(post.views)} views | ${formatPayout(post.views)} | ${post.status} | ${cycleName}${tag}\n${post.link}`;
     });
 
     await interaction.editReply({
@@ -314,34 +493,102 @@ async function handleInteraction(interaction) {
           .setTitle(`Admin Stats - ${targetUser.tag}`)
           .setColor(0xf2994a)
           .setDescription(lines.join('\n\n').slice(0, 3900))
-          .addFields({
-            name: 'Total',
-            value: `${result.posts.length} post(s), ${formatNumber(totalViews)} total views`
-          })
+          .addFields(
+            { name: 'Total Views', value: formatNumber(totalViews), inline: true },
+            { name: 'Total Payout', value: `$${totalPayout}`, inline: true },
+            { name: 'Posts', value: String(result.posts.length), inline: true }
+          )
       ]
     });
     return;
   }
 
+  if (commandName === 'admin-account-info') {
+    const targetUser = interaction.options.getUser('user', true);
+    const storedUser = await readUserById(targetUser.id);
+    const result = await listPostsForUserId(targetUser.id);
+    const user = storedUser ?? result.user;
+
+    await interaction.editReply({ embeds: [accountSummaryEmbed(user, result.posts)] });
+    return;
+  }
+
+  if (commandName === 'admin-payment-details') {
+    const targetUser = interaction.options.getUser('user', true);
+    const storedUser = await readUserById(targetUser.id);
+    const payments = Object.values(storedUser?.payments ?? {});
+
+    await interaction.editReply({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle(`Payment Details - ${targetUser.tag}`)
+          .setColor(0xf2994a)
+          .setDescription(payments.length
+            ? payments.map((payment) => {
+              if (payment.platform === 'paypal') return `PayPal: ${maskValue(payment.paypalEmail)} | ${payment.firstName ?? ''} ${payment.lastName ?? ''}`.trim();
+              return `${payment.platform}: ${maskValue(payment.walletAddress)}`;
+            }).join('\n')
+            : 'No payment details saved.')
+      ]
+    });
+    return;
+  }
+
+  if (commandName === 'admin-remove-video') {
+    const targetUser = interaction.options.getUser('user', true);
+    const links = parseLinks(interaction.options.getString('links', true));
+    const videoIds = await Promise.all(links.map((link) => resolveTikTokVideoId(link)));
+    const removed = await removePostsForUserId(targetUser.id, links, videoIds);
+
+    await interaction.editReply(`Removed ${removed} tracked video(s) for ${targetUser.tag}.`);
+    return;
+  }
+
+  if (commandName === 'admin-reset-user-account') {
+    const targetUser = interaction.options.getUser('user', true);
+    const confirm = interaction.options.getBoolean('confirm', true);
+
+    if (!confirm) {
+      await interaction.editReply('Nothing reset. Run it again with `confirm:true` if you want to remove that user TikTok account and videos.');
+      return;
+    }
+
+    const result = await resetUserAccount(targetUser.id);
+    await interaction.editReply(`Reset ${targetUser.tag}: removed TikTok connection and ${result.removedPosts} tracked video(s).`);
+    return;
+  }
+
+  if (commandName === 'admin-inactivity') {
+    const result = await inactivityEmbed(0);
+    const totalPages = pageCount(result.rows.length);
+    await interaction.editReply({
+      embeds: [result.embed],
+      components: paginationRows('inactivity', 0, totalPages)
+    });
+    return;
+  }
+
+  if (commandName === 'admin-refresh-user-stats') {
+    const targetUser = interaction.options.getUser('user', true);
+    const updates = await refreshStats(targetUser.id);
+    const tracked = updates.filter((update) => update.status === 'tracked').length;
+
+    await interaction.editReply(`Refreshed ${updates.length} post(s) for ${targetUser.tag}. ${tracked} post(s) have live API stats.`);
+    return;
+  }
+
   if (commandName === 'admin-all-stats') {
-    const rows = await adminStatsSummary();
+    const result = await adminAllStatsEmbed(0);
+    const rows = result.rows;
 
     if (rows.length === 0) {
       await interaction.editReply('No users have tracked posts yet.');
       return;
     }
 
-    const description = rows.slice(0, 15).map((row, index) =>
-      `#${index + 1} ${row.username}: ${formatNumber(row.views)} views | ${row.posts} post(s) | ${row.tracked} tracked | ${row.pending} pending/manual`
-    ).join('\n');
-
     await interaction.editReply({
-      embeds: [
-        new EmbedBuilder()
-          .setTitle('Admin Stats Summary')
-          .setColor(0xf2994a)
-          .setDescription(description)
-      ]
+      embeds: [result.embed],
+      components: paginationRows('adminall', 0, pageCount(rows.length))
     });
     return;
   }
@@ -355,17 +602,9 @@ async function handleInteraction(interaction) {
       return;
     }
 
-    const description = rows.slice(0, 10).map((row, index) =>
-      `#${index + 1} ${row.username}: ${formatNumber(row.views)} views across ${row.posts} post(s)`
-    ).join('\n');
-
     await interaction.editReply({
-      embeds: [
-        new EmbedBuilder()
-          .setTitle(result.cycle ? `Leaderboard - ${result.cycle.name}` : 'Leaderboard')
-          .setColor(0x27ae60)
-          .setDescription(description)
-      ]
+      embeds: [leaderboardEmbed(result, 0)],
+      components: paginationRows('leaderboard', 0, pageCount(rows.length))
     });
     return;
   }
@@ -391,7 +630,7 @@ async function handleInteraction(interaction) {
       return;
     }
 
-    await interaction.editReply(`Ended cycle: ${result.cycle.name}. New uploads will not count toward a cycle until an admin starts another one.`);
+    await interaction.editReply(`Ended cycle: ${result.cycle.name}. The leaderboard/tracked videos were cleared. New uploads will not count toward a cycle until an admin starts another one.`);
     return;
   }
 
@@ -414,6 +653,18 @@ async function handleInteraction(interaction) {
     const tracked = updates.filter((update) => update.status === 'tracked').length;
 
     await interaction.editReply(`Refreshed ${updates.length} post(s). ${tracked} post(s) have live API stats.`);
+    return;
+  }
+
+  if (commandName === 'admin-pause-uploads') {
+    await setUploadsPaused(true);
+    await interaction.editReply('Uploads are now paused. Users will see a paused message when they try to upload clips.');
+    return;
+  }
+
+  if (commandName === 'admin-unpause-uploads') {
+    await setUploadsPaused(false);
+    await interaction.editReply('Uploads are now unpaused. Users can submit clips again.');
     return;
   }
 
