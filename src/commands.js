@@ -206,6 +206,11 @@ export const commands = [
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
   new SlashCommandBuilder()
+    .setName('admin-totalpayout')
+    .setDescription('Admin: view the total payout from the leaderboard.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+
+  new SlashCommandBuilder()
     .setName('leaderboard')
     .setDescription('View rankings for the current tracking cycle.'),
 

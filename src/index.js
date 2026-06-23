@@ -129,6 +129,7 @@ function helpEmbed() {
           '`/leaderboard` - View rankings for the current cycle.',
           "`/admin-stats user` - Admin only: view one user's tracked posts.",
           '`/admin-all-stats` - Admin only: view all-user totals.',
+          '`/admin-totalpayout` - Admin only: view total payout from the leaderboard.',
           '`/admin-account-info user` - Admin only: view a user account summary.',
           '`/admin-payment-details user` - Admin only: view user payout details.',
           '`/admin-remove-video user links` - Admin only: remove links from a user.',
@@ -212,6 +213,9 @@ function leaderboardEmbed(result, page = 0) {
 async function adminAllStatsEmbed(page = 0) {
   const rows = await adminStatsSummary();
   const totalPages = pageCount(rows.length);
+  const totalViews = rows.reduce((sum, row) => sum + Number(row.views ?? 0), 0);
+  const totalPosts = rows.reduce((sum, row) => sum + Number(row.posts ?? 0), 0);
+  const totalPayout = rows.reduce((sum, row) => sum + Number(row.payout ?? 0), 0);
   const description = pageRows(rows, page).map((row, index) => {
     const rank = page * pageSize + index + 1;
     return `#${rank} ${row.username}: ${compactNumber(row.views)} views | $${row.payout ?? 0} | ${row.posts} post(s) | ${row.tracked} tracked | ${row.pending} pending/manual`;
@@ -223,6 +227,11 @@ async function adminAllStatsEmbed(page = 0) {
       .setTitle('Admin Stats Summary')
       .setColor(0xf2994a)
       .setDescription(description || 'No users have tracked posts yet.')
+      .addFields(
+        { name: 'Total Payout', value: `$${totalPayout}`, inline: true },
+        { name: 'Total Views', value: compactNumber(totalViews), inline: true },
+        { name: 'Total Posts', value: String(totalPosts), inline: true }
+      )
       .setFooter({ text: `Page ${page + 1}/${totalPages} | ${rows.length} total users` })
   };
 }
@@ -589,6 +598,36 @@ async function handleInteraction(interaction) {
     await interaction.editReply({
       embeds: [result.embed],
       components: paginationRows('adminall', 0, pageCount(rows.length))
+    });
+    return;
+  }
+
+  if (commandName === 'admin-totalpayout') {
+    const result = await leaderboard();
+    const rows = result.rows;
+
+    if (rows.length === 0) {
+      await interaction.editReply(result.cycle ? `No payout yet for ${result.cycle.name}.` : 'No payout yet.');
+      return;
+    }
+
+    const totalPayout = rows.reduce((sum, row) => sum + Number(row.payout ?? 0), 0);
+    const totalViews = rows.reduce((sum, row) => sum + Number(row.views ?? 0), 0);
+    const totalPosts = rows.reduce((sum, row) => sum + Number(row.posts ?? 0), 0);
+
+    await interaction.editReply({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle(result.cycle ? `Total Payout - ${result.cycle.name}` : 'Total Payout')
+          .setColor(0x27ae60)
+          .addFields(
+            { name: 'Total Payout', value: `$${totalPayout}`, inline: true },
+            { name: 'Total Views', value: compactNumber(totalViews), inline: true },
+            { name: 'Total Posts', value: String(totalPosts), inline: true },
+            { name: 'Total Clippers', value: String(rows.length), inline: true }
+          )
+          .setFooter({ text: 'Total uses the same per-video payout math shown on the leaderboard.' })
+      ]
     });
     return;
   }
