@@ -32,11 +32,8 @@ export function compactNumber(value) {
 export function calculatePayout(views) {
   const viewCount = Number(views ?? 0);
 
-  if (viewCount >= 5_000_000) return 500;
-  if (viewCount >= 1_000_000) return 100;
-  if (viewCount >= 500_000) return 50;
-  if (viewCount >= 100_000) return 10;
-  return 0;
+  if (viewCount >= 1_000_000) return Math.floor(viewCount / 1_000_000) * 100;
+  return Math.floor(viewCount / 100_000) * 10;
 }
 
 export function formatPayout(views) {

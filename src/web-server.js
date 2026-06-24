@@ -4,6 +4,7 @@ import path from 'node:path';
 import { config } from './config.js';
 import { consumeTikTokOAuthState, saveTikTokConnection } from './storage.js';
 import { exchangeTikTokCode, fetchTikTokUserInfo, getTikTokRedirectUri } from './social/tiktok-login.js';
+import { sendAuditLog } from './audit-log.js';
 
 const webServerVersion = '2026-06-01-tiktok-verification-fallback';
 
@@ -38,7 +39,7 @@ function sendHtml(response, statusCode, title, message) {
   response.end(htmlPage(title, message));
 }
 
-export function startWebServer() {
+export function startWebServer(client = null) {
   const server = createServer(async (request, response) => {
     const url = new URL(request.url, `http://${request.headers.host}`);
 
@@ -117,6 +118,16 @@ export function startWebServer() {
       const tokenData = await exchangeTikTokCode(code, stateRecord.codeVerifier);
       const profile = await fetchTikTokUserInfo(tokenData.access_token);
       await saveTikTokConnection(stateRecord.userId, tokenData, profile);
+      if (client) {
+        await sendAuditLog(client, {
+          title: 'TikTok Connected',
+          color: 0x27ae60,
+          fields: [
+            { name: 'User ID', value: stateRecord.userId, inline: false },
+            { name: 'TikTok', value: profile.username ? `@${profile.username}` : profile.display_name ?? tokenData.open_id ?? 'Unknown', inline: true }
+          ]
+        });
+      }
 
       sendHtml(response, 200, 'TikTok Connected', 'Your TikTok account is connected to WotionClippersbot. You can return to Discord and use /tiktok-status.');
     } catch (callbackError) {

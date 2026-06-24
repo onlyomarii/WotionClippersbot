@@ -15,7 +15,8 @@ export const config = {
   tiktokClientSecret: envValue('TIKTOK_CLIENT_SECRET') || envValue('TIKTOK_RESEARCH_CLIENT_SECRET'),
   tiktokRedirectUri: envValue('TIKTOK_REDIRECT_URI'),
   tiktokResearchClientKey: envValue('TIKTOK_RESEARCH_CLIENT_KEY'),
-  tiktokResearchClientSecret: envValue('TIKTOK_RESEARCH_CLIENT_SECRET')
+  tiktokResearchClientSecret: envValue('TIKTOK_RESEARCH_CLIENT_SECRET'),
+  auditLogChannelId: envValue('AUDIT_LOG_CHANNEL_ID') || envValue('LOG_CHANNEL_ID')
 };
 
 export function requireConfig(keys) {

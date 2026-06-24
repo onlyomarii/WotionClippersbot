@@ -211,6 +211,51 @@ export const commands = [
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
   new SlashCommandBuilder()
+    .setName('admin-bulk-reset-leaderboard')
+    .setDescription('Admin: reset users by leaderboard rank range.')
+    .addIntegerOption((option) =>
+      option.setName('start_rank')
+        .setDescription('First leaderboard rank to reset, like 44')
+        .setMinValue(1)
+        .setRequired(true))
+    .addIntegerOption((option) =>
+      option.setName('end_rank')
+        .setDescription('Last leaderboard rank to reset, like 105')
+        .setMinValue(1)
+        .setRequired(true))
+    .addBooleanOption((option) =>
+      option.setName('confirm')
+        .setDescription('Confirm removing TikTok and videos for this range')
+        .setRequired(true))
+    .addBooleanOption((option) =>
+      option.setName('all_time')
+        .setDescription('Use all-time stats instead of current leaderboard')
+        .setRequired(false))
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+
+  new SlashCommandBuilder()
+    .setName('admin-clean-leaderboard')
+    .setDescription('Admin: clear inactive or departed users from leaderboard data.')
+    .addStringOption((option) =>
+      option.setName('target')
+        .setDescription('Which users to clean up')
+        .setRequired(true)
+        .addChoices(
+          { name: 'Users no longer in server', value: 'left_server' },
+          { name: 'Inactive TikTok users', value: 'inactive' },
+          { name: 'Both', value: 'both' }
+        ))
+    .addBooleanOption((option) =>
+      option.setName('confirm')
+        .setDescription('Confirm removing TikToks and videos for matching users')
+        .setRequired(true))
+    .addBooleanOption((option) =>
+      option.setName('all_time')
+        .setDescription('Use all-time data instead of current leaderboard data')
+        .setRequired(false))
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+
+  new SlashCommandBuilder()
     .setName('leaderboard')
     .setDescription('View rankings for the current tracking cycle.'),
 

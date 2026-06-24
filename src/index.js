@@ -6,7 +6,8 @@ import {
   EmbedBuilder,
   Events,
   GatewayIntentBits,
-  MessageFlags
+  MessageFlags,
+  PermissionFlagsBits
 } from 'discord.js';
 import { config, requireConfig } from './config.js';
 import { calculatePayout, compactNumber, formatNumber, formatPayout, maskValue, parseLinks } from './format.js';
@@ -41,6 +42,7 @@ import { refreshStats } from './social/tracker.js';
 import { resolveTikTokVideoId } from './social/tiktok.js';
 import { createPkcePair, createTikTokAuthUrl, getTikTokRedirectUri, hasTikTokLoginConfig } from './social/tiktok-login.js';
 import { startWebServer } from './web-server.js';
+import { formatCommandOptions, sendAuditLog } from './audit-log.js';
 
 requireConfig(['discordToken']);
 
@@ -130,6 +132,8 @@ function helpEmbed() {
           "`/admin-stats user` - Admin only: view one user's tracked posts.",
           '`/admin-all-stats` - Admin only: view all-user totals.',
           '`/admin-totalpayout` - Admin only: view total payout from the leaderboard.',
+          '`/admin-bulk-reset-leaderboard` - Admin only: reset users by leaderboard rank range.',
+          '`/admin-clean-leaderboard` - Admin only: clear inactive or departed users.',
           '`/admin-account-info user` - Admin only: view a user account summary.',
           '`/admin-payment-details user` - Admin only: view user payout details.',
           '`/admin-remove-video user links` - Admin only: remove links from a user.',
@@ -236,6 +240,25 @@ async function adminAllStatsEmbed(page = 0) {
   };
 }
 
+function isAdminInteraction(interaction) {
+  return Boolean(interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild));
+}
+
+async function logAdminCommand(interaction, status = 'Used') {
+  if (!isAdminInteraction(interaction)) return;
+
+  await sendAuditLog(client, {
+    title: `Admin Command ${status}`,
+    color: status === 'Failed' ? 0xeb5757 : 0xf2994a,
+    fields: [
+      { name: 'Admin', value: `${interaction.user.tag} (${interaction.user.id})`, inline: false },
+      { name: 'Command', value: `/${interaction.commandName}`, inline: true },
+      { name: 'Channel', value: interaction.channelId ? `<#${interaction.channelId}>` : 'Unknown', inline: true },
+      { name: 'Options', value: formatCommandOptions(interaction), inline: false }
+    ]
+  });
+}
+
 async function inactivityEmbed(page = 0) {
   const rows = (await listAllUsersWithPosts()).sort((a, b) => a.postCount - b.postCount || String(a.user.username).localeCompare(String(b.user.username)));
   const totalPages = pageCount(rows.length);
@@ -253,6 +276,41 @@ async function inactivityEmbed(page = 0) {
       .setDescription(description || 'No users found yet.')
       .setFooter({ text: `Page ${page + 1}/${totalPages} | ${rows.length} total users` })
   };
+}
+
+async function leaderboardRowsForScope(allTime = false) {
+  if (allTime) {
+    const rows = await adminStatsSummary();
+    return {
+      cycle: null,
+      scope: 'all time',
+      rows: rows.map((row) => ({
+        userId: row.userId,
+        username: row.username,
+        posts: row.posts,
+        views: row.views,
+        payout: row.payout
+      }))
+    };
+  }
+
+  const result = await leaderboard();
+  return {
+    ...result,
+    scope: result.cycle ? `current cycle (${result.cycle.name})` : 'current leaderboard'
+  };
+}
+
+function cleanupPreviewRows(rows, limit = 15) {
+  const preview = rows.slice(0, limit).map((row, index) => {
+    const details = row.views !== undefined
+      ? `${compactNumber(row.views)} views | ${row.posts} post(s)`
+      : `${row.postCount ?? 0} post(s)`;
+    return `${index + 1}. ${row.username ?? row.user?.username ?? row.userId} (${row.userId ?? row.user?.id}) - ${details}`;
+  });
+
+  if (rows.length > limit) preview.push(`...and ${rows.length - limit} more user(s)`);
+  return preview;
 }
 
 async function handleInteraction(interaction) {
@@ -301,6 +359,7 @@ async function handleInteraction(interaction) {
   const isPublicCommand = commandName === 'leaderboard';
 
   await interaction.deferReply(isPublicCommand ? {} : { flags: MessageFlags.Ephemeral });
+  await logAdminCommand(interaction, 'Used');
 
   if (commandName === 'help') {
     await interaction.editReply({ embeds: [helpEmbed()] });
@@ -360,6 +419,14 @@ async function handleInteraction(interaction) {
     const authUrl = createTikTokAuthUrl(state, pkce.codeChallenge);
 
     await interaction.editReply(`Connect your TikTok account here:\n${authUrl}\n\nThis link expires in 10 minutes.`);
+    await sendAuditLog(client, {
+      title: 'TikTok Connect Link Requested',
+      color: 0x2f80ed,
+      fields: [
+        { name: 'User', value: `${interaction.user.tag} (${interaction.user.id})`, inline: false },
+        { name: 'Channel', value: interaction.channelId ? `<#${interaction.channelId}>` : 'Unknown', inline: true }
+      ]
+    });
     return;
   }
 
@@ -439,6 +506,17 @@ async function handleInteraction(interaction) {
     const posts = await addPosts(interaction.user, links, commandName === 'bounty-upload' ? 'bounty' : 'normal', tag);
 
     await interaction.editReply(`Added ${posts.length} post(s) for tracking. Stats refresh automatically every 4 hours, or an admin can run \`/refresh-stats\`.`);
+    await sendAuditLog(client, {
+      title: commandName === 'bounty-upload' ? 'Bounty Upload Command Used' : 'Upload Command Used',
+      color: posts.length ? 0x27ae60 : 0xf2994a,
+      fields: [
+        { name: 'User', value: `${interaction.user.tag} (${interaction.user.id})`, inline: false },
+        { name: 'Command', value: `/${commandName}`, inline: true },
+        { name: 'Added', value: String(posts.length), inline: true },
+        ...(tag ? [{ name: 'Bounty Tag', value: tag, inline: true }] : []),
+        { name: 'Links', value: posts.length ? posts.map((post) => post.link).join('\n') : 'None', inline: false }
+      ]
+    });
     return;
   }
 
@@ -632,6 +710,136 @@ async function handleInteraction(interaction) {
     return;
   }
 
+  if (commandName === 'admin-bulk-reset-leaderboard') {
+    const startRank = interaction.options.getInteger('start_rank', true);
+    const endRank = interaction.options.getInteger('end_rank', true);
+    const confirm = interaction.options.getBoolean('confirm', true);
+    const allTime = interaction.options.getBoolean('all_time') ?? false;
+    const firstRank = Math.min(startRank, endRank);
+    const lastRank = Math.max(startRank, endRank);
+    const result = await leaderboardRowsForScope(allTime);
+
+    if (!result.rows.length) {
+      await interaction.editReply(`No users found for ${result.scope}.`);
+      return;
+    }
+
+    if (firstRank > result.rows.length) {
+      await interaction.editReply(`Rank out of range. ${result.scope} only has ${result.rows.length} user(s).`);
+      return;
+    }
+
+    const selected = result.rows.slice(firstRank - 1, Math.min(lastRank, result.rows.length));
+    const preview = cleanupPreviewRows(selected, 10);
+
+    if (!confirm) {
+      await interaction.editReply([
+        `This would reset ${selected.length} user(s), ranks ${firstRank}-${firstRank + selected.length - 1}, for ${result.scope}.`,
+        '',
+        ...preview,
+        '',
+        'Run again with `confirm:true` to remove their TikTok connection and tracked videos.'
+      ].join('\n').slice(0, 1900));
+      return;
+    }
+
+    let removedPosts = 0;
+    for (const row of selected) {
+      const reset = await resetUserAccount(row.userId);
+      removedPosts += reset.removedPosts ?? 0;
+    }
+
+    await interaction.editReply([
+      `Reset ${selected.length} user(s), ranks ${firstRank}-${firstRank + selected.length - 1}, for ${result.scope}.`,
+      `Tracked videos removed: ${removedPosts}`,
+      '',
+      ...preview,
+      '',
+      'Payment details and manual social accounts were not removed.'
+    ].join('\n').slice(0, 1900));
+    return;
+  }
+
+  if (commandName === 'admin-clean-leaderboard') {
+    const target = interaction.options.getString('target', true);
+    const confirm = interaction.options.getBoolean('confirm', true);
+    const allTime = interaction.options.getBoolean('all_time') ?? false;
+    const users = new Map();
+    const leftServer = [];
+    const inactive = [];
+    const result = await leaderboardRowsForScope(allTime);
+
+    if (target === 'left_server' || target === 'both') {
+      for (const row of result.rows) {
+        const member = await interaction.guild?.members.fetch(row.userId).catch(() => null);
+        if (!member) {
+          leftServer.push(row);
+          users.set(row.userId, { ...row, reason: 'left server' });
+        }
+      }
+    }
+
+    if (target === 'inactive' || target === 'both') {
+      const activityRows = await listAllUsersWithPosts();
+      for (const row of activityRows) {
+        if (row.user?.tiktok && row.postCount === 0) {
+          inactive.push(row);
+          if (!users.has(row.user.id)) {
+            users.set(row.user.id, {
+              userId: row.user.id,
+              username: row.user.username,
+              postCount: row.postCount,
+              reason: 'inactive'
+            });
+          }
+        }
+      }
+    }
+
+    const selected = [...users.values()];
+    const label = target === 'left_server'
+      ? 'users no longer in the server'
+      : target === 'inactive'
+        ? 'inactive TikTok users'
+        : 'inactive users and users no longer in the server';
+
+    if (!selected.length) {
+      await interaction.editReply(`No ${label} found for ${result.scope}.`);
+      return;
+    }
+
+    const preview = cleanupPreviewRows(selected, 15);
+
+    if (!confirm) {
+      await interaction.editReply([
+        `This would reset ${selected.length} ${label} for ${result.scope}.`,
+        '',
+        ...preview,
+        '',
+        'Run again with `confirm:true` to remove their TikTok connection and tracked videos.'
+      ].join('\n').slice(0, 1900));
+      return;
+    }
+
+    let removedPosts = 0;
+    for (const row of selected) {
+      const reset = await resetUserAccount(row.userId);
+      removedPosts += reset.removedPosts ?? 0;
+    }
+
+    await interaction.editReply([
+      `Cleaned ${selected.length} ${label} for ${result.scope}.`,
+      `Left-server matches: ${leftServer.length}`,
+      `Inactive matches: ${inactive.length}`,
+      `Tracked videos removed: ${removedPosts}`,
+      '',
+      ...preview,
+      '',
+      'Payment details and manual social accounts were not removed.'
+    ].join('\n').slice(0, 1900));
+    return;
+  }
+
   if (commandName === 'leaderboard') {
     const result = await leaderboard();
     const rows = result.rows;
@@ -732,11 +940,14 @@ client.once(Events.ClientReady, (readyClient) => {
   }, 4 * 60 * 60 * 1000);
 });
 
-startWebServer();
+startWebServer(client);
 
 client.on(Events.InteractionCreate, (interaction) => {
   handleInteraction(interaction).catch(async (error) => {
     console.error(error);
+    if (interaction.isChatInputCommand?.()) {
+      await logAdminCommand(interaction, 'Failed');
+    }
 
     if (error.code === 10062 || error.code === 40060) {
       return;

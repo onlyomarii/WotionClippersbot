@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { calculatePayout } from './format.js';
 
 const storePath = path.join(process.cwd(), 'data', 'store.json');
 
@@ -466,7 +467,7 @@ export async function adminStatsSummary() {
 
     current.posts += 1;
     current.views += Number(post.views ?? 0);
-    current.payout += post.views >= 5000000 ? 500 : post.views >= 1000000 ? 100 : post.views >= 500000 ? 50 : post.views >= 100000 ? 10 : 0;
+    current.payout += calculatePayout(post.views);
     if (post.status === 'tracked') current.tracked += 1;
     if (post.status !== 'tracked') current.pending += 1;
     rows.set(post.userId, current);
@@ -493,7 +494,7 @@ export async function leaderboard() {
 
     current.posts += 1;
     current.views += Number(post.views ?? 0);
-    current.payout += post.views >= 5000000 ? 500 : post.views >= 1000000 ? 100 : post.views >= 500000 ? 50 : post.views >= 100000 ? 10 : 0;
+    current.payout += calculatePayout(post.views);
     rows.set(post.userId, current);
   }
 
