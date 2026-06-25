@@ -132,15 +132,20 @@ function helpEmbed() {
           "`/admin-stats user` - Admin only: view one user's tracked posts.",
           '`/admin-all-stats` - Admin only: view all-user totals.',
           '`/admin-totalpayout` - Admin only: view total payout from the leaderboard.',
-          '`/admin-bulk-reset-leaderboard` - Admin only: reset users by leaderboard rank range.',
-          '`/admin-clean-leaderboard` - Admin only: clear inactive or departed users.',
-          '`/admin-account-info user` - Admin only: view a user account summary.',
-          '`/admin-payment-details user` - Admin only: view user payout details.',
-          '`/admin-remove-video user links` - Admin only: remove links from a user.',
-          '`/admin-reset-user-account user confirm:true` - Admin only: remove TikTok and videos.',
           '`/admin-inactivity` - Admin only: check upload activity.',
           '`/refresh-stats` - Admin only: refresh all view counts now.',
           '`/admin-refresh-user-stats user` - Admin only: refresh one user.'
+        ].join('\n')
+      },
+      {
+        name: 'Admin User Tools',
+        value: [
+          '`/admin-bulk-reset-leaderboard` - Reset users by leaderboard rank range.',
+          '`/admin-clean-leaderboard` - Clear inactive or departed users.',
+          '`/admin-account-info user` - Admin only: view a user account summary.',
+          '`/admin-payment-details user` - Admin only: view user payout details.',
+          '`/admin-remove-video user links` - Admin only: remove links from a user.',
+          '`/admin-reset-user-account user confirm:true` - Remove TikTok and videos.'
         ].join('\n')
       },
       {
