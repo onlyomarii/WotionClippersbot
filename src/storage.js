@@ -532,6 +532,54 @@ export async function listAllPosts() {
   return Object.values(store.posts);
 }
 
+export async function getWebsiteStats() {
+  const store = await loadStore();
+  const posts = Object.values(store.posts);
+  const users = Object.values(store.users);
+  const totalViews = posts.reduce((sum, post) => sum + Number(post.views ?? 0), 0);
+  const totalPayout = posts.reduce((sum, post) => sum + calculatePayout(post.views), 0);
+
+  return {
+    total_users: users.length,
+    total_posts: posts.length,
+    total_views: totalViews,
+    total_payout: totalPayout,
+    tracked_posts: posts.filter((post) => post.status === 'tracked').length,
+    pending_posts: posts.filter((post) => post.status !== 'tracked').length,
+    active_cycle_id: store.activeCycleId,
+  };
+}
+
+export async function getWebsitePosts(limit = 100) {
+  const store = await loadStore();
+  const max = Math.max(1, Math.min(Number(limit) || 100, 10000));
+
+  return Object.values(store.posts)
+    .sort((a, b) => new Date(b.updatedAt ?? b.createdAt) - new Date(a.updatedAt ?? a.createdAt))
+    .slice(0, max)
+    .map((post) => {
+      const user = store.users[post.userId] ?? {};
+      const tiktokUsername = user.accounts?.tiktok?.username || user.tiktok?.profile?.username || '';
+
+      return {
+        id: post.id,
+        video_id: post.videoId || parseTikTokVideoIdFromLink(post.link) || '',
+        discord_id: post.userId,
+        discord_username: user.username || post.userId,
+        tiktok_user: tiktokUsername,
+        platform: post.platform || 'tiktok',
+        url: post.link,
+        view_count: Number(post.views ?? 0),
+        like_count: Number(post.likes ?? 0),
+        payout: calculatePayout(post.views),
+        status: post.status,
+        cycle_id: post.cycleId,
+        created_at: post.createdAt,
+        updated_at: post.updatedAt,
+      };
+    });
+}
+
 export async function listAllUsersWithPosts() {
   const store = await loadStore();
   return Object.values(store.users).map((user) => {

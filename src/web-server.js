@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { config } from './config.js';
-import { consumeTikTokOAuthState, saveTikTokConnection } from './storage.js';
+import { adminStatsSummary, consumeTikTokOAuthState, getWebsitePosts, getWebsiteStats, leaderboard, saveTikTokConnection } from './storage.js';
 import { exchangeTikTokCode, fetchTikTokUserInfo, getTikTokRedirectUri } from './social/tiktok-login.js';
 import { sendAuditLog } from './audit-log.js';
 
@@ -39,9 +39,111 @@ function sendHtml(response, statusCode, title, message) {
   response.end(htmlPage(title, message));
 }
 
+function parseAllowedOrigins() {
+  return (config.websiteAllowedOrigins || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+}
+
+function allowedOrigin(request) {
+  const allowed = parseAllowedOrigins();
+  if (!allowed.length) return '*';
+
+  const origin = request.headers.origin;
+  if (!origin) return '*';
+  return allowed.includes(origin) ? origin : null;
+}
+
+function isWebsiteAuthorized(request) {
+  if (!config.websiteApiKey) return true;
+
+  const bearer = request.headers.authorization?.replace(/^Bearer\s+/i, '');
+  const headerKey = request.headers['x-api-key'];
+  return bearer === config.websiteApiKey || headerKey === config.websiteApiKey;
+}
+
+function sendJson(response, statusCode, data, origin = '*') {
+  const body = JSON.stringify(data);
+  response.writeHead(statusCode, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Content-Length': Buffer.byteLength(body),
+    'Access-Control-Allow-Origin': origin || 'null',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key',
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  });
+  response.end(body);
+}
+
+function normalizeLimit(url, fallback = 100, max = 500) {
+  const raw = Number(url.searchParams.get('limit') || fallback);
+  if (!Number.isFinite(raw) || raw < 1) return fallback;
+  return Math.min(Math.floor(raw), max);
+}
+
+async function handleWebsiteApi(request, response, url) {
+  if (config.websiteApiEnabled === 'false') return false;
+  if (!url.pathname.startsWith('/api/')) return false;
+
+  const origin = allowedOrigin(request);
+
+  if (request.method === 'OPTIONS') {
+    sendJson(response, 204, {}, origin || '*');
+    return true;
+  }
+
+  if (!origin) {
+    sendJson(response, 403, { error: 'Origin not allowed' }, 'null');
+    return true;
+  }
+
+  if (!isWebsiteAuthorized(request)) {
+    sendJson(response, 401, { error: 'Unauthorized' }, origin);
+    return true;
+  }
+
+  if (request.method !== 'GET') {
+    sendJson(response, 405, { error: 'Method not allowed' }, origin);
+    return true;
+  }
+
+  if (url.pathname === '/api/health') {
+    sendJson(response, 200, { ok: true }, origin);
+    return true;
+  }
+
+  if (url.pathname === '/api/stats') {
+    sendJson(response, 200, await getWebsiteStats(), origin);
+    return true;
+  }
+
+  if (url.pathname === '/api/leaderboard') {
+    const result = await leaderboard();
+    sendJson(response, 200, { cycle: result.cycle, leaderboard: result.rows }, origin);
+    return true;
+  }
+
+  if (url.pathname === '/api/admin-stats') {
+    sendJson(response, 200, { users: await adminStatsSummary() }, origin);
+    return true;
+  }
+
+  if (url.pathname === '/api/posts' || url.pathname === '/api/raw-posts') {
+    sendJson(response, 200, { posts: await getWebsitePosts(normalizeLimit(url, 100, 10000)) }, origin);
+    return true;
+  }
+
+  sendJson(response, 404, { error: 'Not found' }, origin);
+  return true;
+}
+
 export function startWebServer(client = null) {
   const server = createServer(async (request, response) => {
     const url = new URL(request.url, `http://${request.headers.host}`);
+
+    if (await handleWebsiteApi(request, response, url)) {
+      return;
+    }
 
     if (url.pathname === '/debug-public') {
       let files = [];

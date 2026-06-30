@@ -42,6 +42,7 @@ import { refreshStats } from './social/tracker.js';
 import { resolveTikTokVideoId } from './social/tiktok.js';
 import { createPkcePair, createTikTokAuthUrl, getTikTokRedirectUri, hasTikTokLoginConfig } from './social/tiktok-login.js';
 import { startWebServer } from './web-server.js';
+import { startWebsitePostPushTimer } from './website-push.js';
 import { formatCommandOptions, sendAuditLog } from './audit-log.js';
 
 requireConfig(['discordToken']);
@@ -946,6 +947,7 @@ client.once(Events.ClientReady, (readyClient) => {
 });
 
 startWebServer(client);
+startWebsitePostPushTimer();
 
 client.on(Events.InteractionCreate, (interaction) => {
   handleInteraction(interaction).catch(async (error) => {

@@ -2,6 +2,7 @@ import { detectPlatformFromUrl } from '../platforms.js';
 import { listAllPosts, updatePostStats } from '../storage.js';
 import { getTikTokViews } from './tiktok.js';
 import { getYouTubeViews } from './youtube.js';
+import { pushPostsToWebsite } from '../website-push.js';
 
 export async function refreshStats(userId = null) {
   const allPosts = await listAllPosts();
@@ -42,5 +43,6 @@ export async function refreshStats(userId = null) {
   }
 
   await updatePostStats(updates);
+  await pushPostsToWebsite();
   return updates;
 }

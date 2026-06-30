@@ -16,7 +16,13 @@ export const config = {
   tiktokRedirectUri: envValue('TIKTOK_REDIRECT_URI'),
   tiktokResearchClientKey: envValue('TIKTOK_RESEARCH_CLIENT_KEY'),
   tiktokResearchClientSecret: envValue('TIKTOK_RESEARCH_CLIENT_SECRET'),
-  auditLogChannelId: envValue('AUDIT_LOG_CHANNEL_ID') || envValue('LOG_CHANNEL_ID')
+  auditLogChannelId: envValue('AUDIT_LOG_CHANNEL_ID') || envValue('LOG_CHANNEL_ID'),
+  websiteAllowedOrigins: envValue('WEBSITE_ALLOWED_ORIGINS'),
+  websiteApiEnabled: envValue('WEBSITE_API_ENABLED', 'true'),
+  websiteApiKey: envValue('WEBSITE_API_KEY'),
+  websitePushEnabled: envValue('WEBSITE_PUSH_ENABLED', 'true'),
+  websitePushIntervalMinutes: Number(envValue('WEBSITE_PUSH_INTERVAL_MINUTES', '5')),
+  websiteUrl: envValue('WEBSITE_URL')
 };
 
 export function requireConfig(keys) {
